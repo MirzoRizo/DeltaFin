@@ -25,14 +25,17 @@ class DatabaseHelper {
       databaseFactory = databaseFactoryFfi;
     }
 
-    // БЕЗОПАСНОСТЬ: Системная папка вместо общедоступной C:\ProgramData
-    final Directory appDocDir = await getApplicationSupportDirectory();
+    // ИСПРАВЛЕНО: Используем общую папку "Документы" вместо изолированной AppSupport
+    final Directory appDocDir = await getApplicationDocumentsDirectory();
+
+    // Теперь база будет лежать по пути: C:\Users\ТвоеИмя\Documents\ShopSystem
     final String sharedDir = join(appDocDir.path, 'ShopSystem');
-    
+
     final dir = Directory(sharedDir);
     if (!await dir.exists()) await dir.create(recursive: true);
 
     final path = join(sharedDir, filePath);
+    print('Путь к БД: $path'); // Выведет путь в консоль, чтобы ты мог его найти
 
     return await databaseFactory.openDatabase(
       path,
@@ -51,14 +54,30 @@ class DatabaseHelper {
   Future<void> _createDB(Database db, int version) async {
     final batch = db.batch();
     // Создаем все таблицы через batch для скорости и надежности
-    batch.execute('''CREATE TABLE products (id INTEGER PRIMARY KEY AUTOINCREMENT, barcode TEXT UNIQUE NOT NULL, name TEXT NOT NULL, cost_price REAL NOT NULL, price REAL NOT NULL, stock REAL NOT NULL, category_id INTEGER, is_weight INTEGER NOT NULL DEFAULT 0, unit TEXT NOT NULL DEFAULT 'шт', image_path TEXT, popularity INTEGER NOT NULL DEFAULT 0)''');
-    batch.execute('''CREATE TABLE categories (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL UNIQUE, prefix INTEGER NOT NULL UNIQUE CHECK(prefix >= 1 AND prefix <= 9))''');
-    batch.execute('''CREATE TABLE sales (id INTEGER PRIMARY KEY AUTOINCREMENT, shift_id INTEGER NOT NULL DEFAULT 0, date TEXT NOT NULL, total_amount REAL NOT NULL, payment_type TEXT NOT NULL DEFAULT 'Наличными', is_returned INTEGER NOT NULL DEFAULT 0, is_synced INTEGER DEFAULT 0)''');
-    batch.execute('''CREATE TABLE sale_items (id INTEGER PRIMARY KEY AUTOINCREMENT, sale_id INTEGER NOT NULL, product_id INTEGER NOT NULL, quantity REAL NOT NULL CHECK(quantity > 0), returned_quantity REAL NOT NULL DEFAULT 0, price REAL NOT NULL, FOREIGN KEY (sale_id) REFERENCES sales (id) ON DELETE CASCADE)''');
-    batch.execute('''CREATE TABLE shifts (id INTEGER PRIMARY KEY AUTOINCREMENT, opened_at TEXT NOT NULL, closed_at TEXT, is_open INTEGER NOT NULL DEFAULT 1)''');
-    batch.execute('''CREATE TABLE cash_operations (id INTEGER PRIMARY KEY AUTOINCREMENT, shift_id INTEGER NOT NULL, type TEXT NOT NULL, amount REAL NOT NULL, created_at TEXT NOT NULL)''');
-    batch.execute('''CREATE TABLE held_carts (id INTEGER PRIMARY KEY AUTOINCREMENT, date TEXT NOT NULL, total_amount REAL NOT NULL)''');
-    batch.execute('''CREATE TABLE held_cart_items (id INTEGER PRIMARY KEY AUTOINCREMENT, held_cart_id INTEGER NOT NULL, product_id INTEGER NOT NULL, quantity REAL NOT NULL)''');
+    batch.execute(
+      '''CREATE TABLE products (id INTEGER PRIMARY KEY AUTOINCREMENT, barcode TEXT UNIQUE NOT NULL, name TEXT NOT NULL, cost_price REAL NOT NULL, price REAL NOT NULL, stock REAL NOT NULL, category_id INTEGER, is_weight INTEGER NOT NULL DEFAULT 0, unit TEXT NOT NULL DEFAULT 'шт', image_path TEXT, popularity INTEGER NOT NULL DEFAULT 0)''',
+    );
+    batch.execute(
+      '''CREATE TABLE categories (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL UNIQUE, prefix INTEGER NOT NULL UNIQUE CHECK(prefix >= 1 AND prefix <= 9))''',
+    );
+    batch.execute(
+      '''CREATE TABLE sales (id INTEGER PRIMARY KEY AUTOINCREMENT, shift_id INTEGER NOT NULL DEFAULT 0, date TEXT NOT NULL, total_amount REAL NOT NULL, payment_type TEXT NOT NULL DEFAULT 'Наличными', is_returned INTEGER NOT NULL DEFAULT 0, is_synced INTEGER DEFAULT 0)''',
+    );
+    batch.execute(
+      '''CREATE TABLE sale_items (id INTEGER PRIMARY KEY AUTOINCREMENT, sale_id INTEGER NOT NULL, product_id INTEGER NOT NULL, quantity REAL NOT NULL CHECK(quantity > 0), returned_quantity REAL NOT NULL DEFAULT 0, price REAL NOT NULL, FOREIGN KEY (sale_id) REFERENCES sales (id) ON DELETE CASCADE)''',
+    );
+    batch.execute(
+      '''CREATE TABLE shifts (id INTEGER PRIMARY KEY AUTOINCREMENT, opened_at TEXT NOT NULL, closed_at TEXT, is_open INTEGER NOT NULL DEFAULT 1)''',
+    );
+    batch.execute(
+      '''CREATE TABLE cash_operations (id INTEGER PRIMARY KEY AUTOINCREMENT, shift_id INTEGER NOT NULL, type TEXT NOT NULL, amount REAL NOT NULL, created_at TEXT NOT NULL)''',
+    );
+    batch.execute(
+      '''CREATE TABLE held_carts (id INTEGER PRIMARY KEY AUTOINCREMENT, date TEXT NOT NULL, total_amount REAL NOT NULL)''',
+    );
+    batch.execute(
+      '''CREATE TABLE held_cart_items (id INTEGER PRIMARY KEY AUTOINCREMENT, held_cart_id INTEGER NOT NULL, product_id INTEGER NOT NULL, quantity REAL NOT NULL)''',
+    );
     await batch.commit();
   }
 
@@ -66,23 +85,63 @@ class DatabaseHelper {
     // Безопасные миграции без слепых catch(e)
     try {
       if (oldVersion < 3) {
-        await _safeAddColumn(db, 'sales', 'shift_id', 'INTEGER NOT NULL DEFAULT 0');
-        await _safeAddColumn(db, 'sales', 'payment_type', "TEXT NOT NULL DEFAULT 'Наличными'");
-        await _safeAddColumn(db, 'sales', 'is_returned', 'INTEGER NOT NULL DEFAULT 0');
-        await db.execute('CREATE TABLE IF NOT EXISTS shifts (id INTEGER PRIMARY KEY AUTOINCREMENT, opened_at TEXT NOT NULL, closed_at TEXT, is_open INTEGER NOT NULL DEFAULT 1)');
-        await db.execute('CREATE TABLE IF NOT EXISTS cash_operations (id INTEGER PRIMARY KEY AUTOINCREMENT, shift_id INTEGER NOT NULL, type TEXT NOT NULL, amount REAL NOT NULL, created_at TEXT NOT NULL)');
+        await _safeAddColumn(
+          db,
+          'sales',
+          'shift_id',
+          'INTEGER NOT NULL DEFAULT 0',
+        );
+        await _safeAddColumn(
+          db,
+          'sales',
+          'payment_type',
+          "TEXT NOT NULL DEFAULT 'Наличными'",
+        );
+        await _safeAddColumn(
+          db,
+          'sales',
+          'is_returned',
+          'INTEGER NOT NULL DEFAULT 0',
+        );
+        await db.execute(
+          'CREATE TABLE IF NOT EXISTS shifts (id INTEGER PRIMARY KEY AUTOINCREMENT, opened_at TEXT NOT NULL, closed_at TEXT, is_open INTEGER NOT NULL DEFAULT 1)',
+        );
+        await db.execute(
+          'CREATE TABLE IF NOT EXISTS cash_operations (id INTEGER PRIMARY KEY AUTOINCREMENT, shift_id INTEGER NOT NULL, type TEXT NOT NULL, amount REAL NOT NULL, created_at TEXT NOT NULL)',
+        );
       }
-      if (oldVersion < 4) await _safeAddColumn(db, 'sale_items', 'returned_quantity', 'REAL NOT NULL DEFAULT 0');
-      if (oldVersion < 5) await _safeAddColumn(db, 'products', 'image_path', 'TEXT');
+      if (oldVersion < 4)
+        await _safeAddColumn(
+          db,
+          'sale_items',
+          'returned_quantity',
+          'REAL NOT NULL DEFAULT 0',
+        );
+      if (oldVersion < 5)
+        await _safeAddColumn(db, 'products', 'image_path', 'TEXT');
       if (oldVersion < 6) {
-        await db.execute('CREATE TABLE IF NOT EXISTS held_carts (id INTEGER PRIMARY KEY AUTOINCREMENT, date TEXT NOT NULL, total_amount REAL NOT NULL)');
-        await db.execute('CREATE TABLE IF NOT EXISTS held_cart_items (id INTEGER PRIMARY KEY AUTOINCREMENT, held_cart_id INTEGER NOT NULL, product_id INTEGER NOT NULL, quantity REAL NOT NULL)');
+        await db.execute(
+          'CREATE TABLE IF NOT EXISTS held_carts (id INTEGER PRIMARY KEY AUTOINCREMENT, date TEXT NOT NULL, total_amount REAL NOT NULL)',
+        );
+        await db.execute(
+          'CREATE TABLE IF NOT EXISTS held_cart_items (id INTEGER PRIMARY KEY AUTOINCREMENT, held_cart_id INTEGER NOT NULL, product_id INTEGER NOT NULL, quantity REAL NOT NULL)',
+        );
       }
-      if (oldVersion < 7) await _safeAddColumn(db, 'products', 'popularity', 'INTEGER NOT NULL DEFAULT 0');
+      if (oldVersion < 7)
+        await _safeAddColumn(
+          db,
+          'products',
+          'popularity',
+          'INTEGER NOT NULL DEFAULT 0',
+        );
       if (oldVersion < 8) {
         await db.transaction((txn) async {
-          await txn.execute('''CREATE TABLE IF NOT EXISTS products_new (id INTEGER PRIMARY KEY AUTOINCREMENT, barcode TEXT UNIQUE NOT NULL, name TEXT NOT NULL, cost_price REAL NOT NULL, price REAL NOT NULL, stock REAL NOT NULL, category_id INTEGER, is_weight INTEGER NOT NULL DEFAULT 0, unit TEXT NOT NULL DEFAULT 'шт', image_path TEXT, popularity INTEGER NOT NULL DEFAULT 0)''');
-          await txn.execute('INSERT INTO products_new SELECT id, barcode, name, cost_price, price, stock, category_id, is_weight, unit, image_path, popularity FROM products');
+          await txn.execute(
+            '''CREATE TABLE IF NOT EXISTS products_new (id INTEGER PRIMARY KEY AUTOINCREMENT, barcode TEXT UNIQUE NOT NULL, name TEXT NOT NULL, cost_price REAL NOT NULL, price REAL NOT NULL, stock REAL NOT NULL, category_id INTEGER, is_weight INTEGER NOT NULL DEFAULT 0, unit TEXT NOT NULL DEFAULT 'шт', image_path TEXT, popularity INTEGER NOT NULL DEFAULT 0)''',
+          );
+          await txn.execute(
+            'INSERT INTO products_new SELECT id, barcode, name, cost_price, price, stock, category_id, is_weight, unit, image_path, popularity FROM products',
+          );
           await txn.execute('DROP TABLE products');
           await txn.execute('ALTER TABLE products_new RENAME TO products');
         });
@@ -93,7 +152,12 @@ class DatabaseHelper {
     }
   }
 
-  Future<void> _safeAddColumn(Database db, String table, String colName, String colDef) async {
+  Future<void> _safeAddColumn(
+    Database db,
+    String table,
+    String colName,
+    String colDef,
+  ) async {
     final res = await db.rawQuery("PRAGMA table_info($table)");
     if (!res.any((r) => r['name'] == colName)) {
       await db.execute('ALTER TABLE $table ADD COLUMN $colName $colDef');

@@ -1,12 +1,13 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:flutter_bloc/flutter_bloc.dart'; // <--- НОВОЕ
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'screens/cashier_terminal_screen.dart';
+import 'logic/cart_cubit.dart'; // <--- НОВОЕ
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // Инициализация базы для десктопа (Windows)
   if (Platform.isWindows || Platform.isLinux || Platform.isMacOS) {
     sqfliteFfiInit();
     databaseFactory = databaseFactoryFfi;
@@ -20,16 +21,18 @@ class CashierApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'Терминал Кассира',
-      debugShowCheckedModeBanner: false,
-      theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(
-          seedColor: Colors.teal,
-        ), // Сделаем кассу в зеленоватых (денежных) тонах
-        useMaterial3: true,
+    // ОБОРАЧИВАЕМ В BlocProvider
+    return MultiBlocProvider(
+      providers: [BlocProvider<CartCubit>(create: (context) => CartCubit())],
+      child: MaterialApp(
+        title: 'Терминал Кассира',
+        debugShowCheckedModeBanner: false,
+        theme: ThemeData(
+          colorScheme: ColorScheme.fromSeed(seedColor: Colors.teal),
+          useMaterial3: true,
+        ),
+        home: const CashierTerminalScreen(),
       ),
-      home: const CashierTerminalScreen(),
     );
   }
 }

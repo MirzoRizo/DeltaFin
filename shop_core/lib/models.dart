@@ -73,3 +73,17 @@ class Category {
     return {'id': id, 'name': name, 'prefix': prefix};
   }
 }
+
+class CartItem {
+  final Product product;
+  double quantity;
+
+  CartItem({required this.product, this.quantity = 1.0});
+
+  double get total => product.price * quantity;
+
+  // Удобный метод для создания копии (понадобится для стейт-менеджмента)
+  CartItem copyWith({double? quantity}) {
+    return CartItem(product: product, quantity: quantity ?? this.quantity);
+  }
+}
