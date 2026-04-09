@@ -45,6 +45,9 @@ class _CashierTerminalScreenState extends State<CashierTerminalScreen> {
   Category? _selectedCategory;
   bool _isLoading = true;
 
+  List<CartItem> _cart = [];
+  double _totalSum = 0.0;
+
   @override
   void initState() {
     super.initState();
@@ -225,34 +228,73 @@ class _CashierTerminalScreenState extends State<CashierTerminalScreen> {
       _scannerFocus.requestFocus();
   }
 
+  // === ОБНОВЛЕННАЯ ЛОГИКА СОХРАНЕНИЯ И ВЫЗОВ ЧЕКА ===
   Future<void> _finalizeSale(Map<String, dynamic> paymentData) async {
     try {
-      final cubit = context.read<CartCubit>();
-      final cartItems = cubit.state;
-      final double totalSum = cubit.totalSum;
+      final db = await DatabaseHelper.instance.database;
+      int newSaleId = 0;
+
+      // 1. Сохраняем в базу текущие товары чека (копируем, чтобы передать в дизайн чека)
+      final savedCart = List<CartItem>.from(_cart);
+      final double totalSum = _totalSum;
       final String paymentType = paymentData['type'];
       final double cashGiven = paymentData['cash_given'] ?? totalSum;
       final double change = paymentData['change'] ?? 0.0;
 
-      final itemsToSave = cartItems
-          .map(
-            (item) => {
-              'product_id': item.product.id,
-              'quantity': item.quantity,
-              'price': item.product.price,
-            },
-          )
-          .toList();
-      int newSaleId = await _saleRepo.finalizeSale(
-        totalAmount: totalSum,
-        paymentType: paymentType,
-        items: itemsToSave,
-      );
+      await db.transaction((txn) async {
+        final shiftResult = await txn.query(
+          'shifts',
+          where: 'is_open = ?',
+          whereArgs: [1],
+          limit: 1,
+        );
 
-      final savedCart = List<CartItem>.from(cartItems);
-      cubit.clearCart();
+        // Запрещаем пробивать чеки "в пустоту"
+        if (shiftResult.isEmpty) {
+          throw Exception('Смена закрыта. Пожалуйста, откройте смену в меню.');
+        }
+        int currentShiftId = shiftResult.first['id'] as int;
+
+        newSaleId = await txn.insert('sales', {
+          'shift_id': currentShiftId,
+          'date': DateTime.now().toIso8601String(),
+          'total_amount': totalSum,
+          'payment_type': paymentType,
+          'is_synced': 0,
+        });
+
+        // ---------------------------------------------------------
+        // ВОТ ЗДЕСЬ НАЧИНАЕТСЯ "ТЕЛЕЖКА" (BATCH)
+        // ---------------------------------------------------------
+        final batch = txn.batch(); // Создаем пустую тележку
+
+        for (var item in _cart) {
+          // Складываем товар в тележку (БЕЗ СЛОВА await)
+          batch.insert('sale_items', {
+            'sale_id': newSaleId,
+            'product_id': item.product.id,
+            'quantity': item.quantity,
+            'price': item.product.price,
+            'returned_quantity': 0,
+          });
+
+          // Складываем обновление остатков в тележку (БЕЗ СЛОВА await)
+          batch.rawUpdate(
+            'UPDATE products SET stock = stock - ?, popularity = popularity + 1 WHERE id = ?',
+            [item.quantity, item.product.id],
+          );
+        }
+
+        // ОДНИМ ЗАХОДОМ сохраняем всю тележку в базу данных!
+        await batch.commit();
+        // ---------------------------------------------------------
+      });
+
+      // 2. Очищаем интерфейс кассы
+      setState(() => _cart.clear());
       _loadData();
 
+      // 3. ПОКАЗЫВАЕМ ВИЗУАЛЬНЫЙ ЧЕК
       if (mounted) {
         await showDialog(
           context: context,
@@ -272,7 +314,10 @@ class _CashierTerminalScreenState extends State<CashierTerminalScreen> {
         );
       }
     } catch (e) {
-      _showErrorDialog('Сбой оплаты', 'Произошла ошибка:\n$e');
+      _showErrorDialog(
+        'Сбой оплаты',
+        'Произошла ошибка при сохранении чека в базу данных:\n$e',
+      );
     } finally {
       _scannerFocus.requestFocus();
     }
@@ -616,32 +661,36 @@ class _CashierTerminalScreenState extends State<CashierTerminalScreen> {
                                               const BorderRadius.vertical(
                                                 top: Radius.circular(8),
                                               ),
-                                          image:
+                                        ),
+                                        child: ClipRRect(
+                                          borderRadius:
+                                              const BorderRadius.vertical(
+                                                top: Radius.circular(8),
+                                              ),
+                                          child:
                                               product.imagePath != null &&
+                                                  product
+                                                      .imagePath!
+                                                      .isNotEmpty &&
                                                   File(
                                                     product.imagePath!,
                                                   ).existsSync()
-                                              ? DecorationImage(
-                                                  image: FileImage(
-                                                    File(product.imagePath!),
-                                                  ),
+                                              ? Image.file(
+                                                  File(product.imagePath!),
                                                   fit: BoxFit.cover,
+                                                  width: double.infinity,
+                                                  height: double.infinity,
+                                                  cacheWidth:
+                                                      200, // <--- МАГИЯ ЗДЕСЬ: Экономит 90% оперативной памяти!
                                                 )
-                                              : null,
-                                        ),
-                                        child:
-                                            product.imagePath == null ||
-                                                !File(
-                                                  product.imagePath!,
-                                                ).existsSync()
-                                            ? Center(
-                                                child: Icon(
-                                                  Icons.image_outlined,
-                                                  size: 40,
-                                                  color: Colors.grey.shade300,
+                                              : Center(
+                                                  child: Icon(
+                                                    Icons.image_outlined,
+                                                    size: 40,
+                                                    color: Colors.grey.shade300,
+                                                  ),
                                                 ),
-                                              )
-                                            : null,
+                                        ),
                                       ),
                                     ),
                                     Padding(

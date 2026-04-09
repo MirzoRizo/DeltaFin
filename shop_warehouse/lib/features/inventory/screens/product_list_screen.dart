@@ -16,6 +16,7 @@ class _ProductListScreenState extends State<ProductListScreen> {
 
   List<Product> _products = [];
   List<Category> _categories = [];
+  Map<int, String> _categoryMap = {};
 
   String _searchQuery = '';
   int? _selectedCategoryId;
@@ -37,6 +38,8 @@ class _ProductListScreenState extends State<ProductListScreen> {
   Future<void> _loadData() async {
     setState(() => _isLoading = true);
     _categories = await _inventoryManager.getCategories();
+    // Трансформируем список в Map для мгновенного доступа
+    _categoryMap = {for (var c in _categories) c.id: c.name};
     await _fetchProducts();
   }
 
@@ -140,11 +143,7 @@ class _ProductListScreenState extends State<ProductListScreen> {
                     itemBuilder: (context, index) {
                       final p = _products[index];
                       final catName =
-                          _categories
-                              .where((c) => c.id == p.categoryId)
-                              .firstOrNull
-                              ?.name ??
-                          'Без группы';
+                          _categoryMap[p.categoryId] ?? 'Без группы';
 
                       return Card(
                         margin: const EdgeInsets.only(bottom: 8),

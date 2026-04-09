@@ -40,7 +40,7 @@ class DatabaseHelper {
     return await databaseFactory.openDatabase(
       path,
       options: OpenDatabaseOptions(
-        version: 8,
+        version: 9,
         onConfigure: (db) async {
           await db.execute('PRAGMA busy_timeout = 5000;');
           await db.execute('PRAGMA foreign_keys = ON;'); // Защита целостности
@@ -78,6 +78,19 @@ class DatabaseHelper {
     batch.execute(
       '''CREATE TABLE held_cart_items (id INTEGER PRIMARY KEY AUTOINCREMENT, held_cart_id INTEGER NOT NULL, product_id INTEGER NOT NULL, quantity REAL NOT NULL)''',
     );
+    // ДОБАВЛЯЕМ ИНДЕКСЫ:
+    // Индекс для ускорения фильтрации по категориям в админке
+    batch.execute(
+      'CREATE INDEX idx_products_category ON products(category_id)',
+    );
+
+    // Составной индекс для кассы: мгновенная выборка весовых товаров и сортировка по популярности
+    batch.execute(
+      'CREATE INDEX idx_products_weight_pop ON products(is_weight, popularity DESC)',
+    );
+
+    // Индекс для поиска товаров по названию (опционально, ускоряет LIKE 'A%')
+    batch.execute('CREATE INDEX idx_products_name ON products(name)');
     await batch.commit();
   }
 
@@ -146,6 +159,19 @@ class DatabaseHelper {
           await txn.execute('ALTER TABLE products_new RENAME TO products');
         });
       }
+      // === ДОБАВЛЯЕМ НОВЫЙ БЛОК ДЛЯ ВЕРСИИ 9 ===
+      if (oldVersion < 9) {
+        // Добавляем индексы безопасно через IF NOT EXISTS
+        await db.execute(
+          'CREATE INDEX IF NOT EXISTS idx_products_category ON products(category_id)',
+        );
+        await db.execute(
+          'CREATE INDEX IF NOT EXISTS idx_products_weight_pop ON products(is_weight, popularity DESC)',
+        );
+        await db.execute(
+          'CREATE INDEX IF NOT EXISTS idx_products_name ON products(name)',
+        );
+      }
     } catch (e) {
       print('КРИТИЧЕСКАЯ ОШИБКА МИГРАЦИИ БД: $e');
       rethrow;
@@ -164,3 +190,4 @@ class DatabaseHelper {
     }
   }
 }
+

@@ -131,16 +131,29 @@ class InventoryManager {
     final db = await _dbHelper.database;
     int minRange = categoryPrefix * 1000;
     int maxRange = minRange + 999;
+
+    // Берем только штрихкоды, которые похожи на числа (без CAST)
     final List<Map<String, dynamic>> result = await db.rawQuery(
-      'SELECT barcode FROM products WHERE CAST(barcode AS INTEGER) >= ? AND CAST(barcode AS INTEGER) <= ? ORDER BY CAST(barcode AS INTEGER) DESC LIMIT 1',
-      [minRange, maxRange],
+      "SELECT barcode FROM products WHERE barcode GLOB '*[0-9]*'",
     );
-    if (result.isNotEmpty) {
-      int lastPlu = int.parse(result.first['barcode'].toString());
-      if (lastPlu < maxRange)
-        return (lastPlu + 1).toString();
-      else
-        throw Exception('Группа переполнена!');
+
+    int maxPlu = minRange;
+    bool found = false;
+
+    // Ищем максимум на стороне Dart (это работает в разы быстрее)
+    for (var row in result) {
+      int? currentPlu = int.tryParse(row['barcode'].toString());
+      if (currentPlu != null &&
+          currentPlu >= minRange &&
+          currentPlu <= maxRange) {
+        found = true;
+        if (currentPlu > maxPlu) maxPlu = currentPlu;
+      }
+    }
+
+    if (found) {
+      if (maxPlu < maxRange) return (maxPlu + 1).toString();
+      throw Exception('Группа переполнена!');
     }
     return (minRange + 1).toString();
   }
