@@ -550,30 +550,48 @@ class _PartialReturnScreenState extends State<PartialReturnScreen> {
     if (_totalReturnAmount <= 0) return;
     try {
       final db = await DatabaseHelper.instance.database;
+
       await db.transaction((txn) async {
+        // БЕЗОПАСНОСТЬ: Проверяем наличие открытой смены для возврата
         final shiftResult = await txn.query(
           'shifts',
           where: 'is_open = ?',
           whereArgs: [1],
           limit: 1,
         );
-        int currentShiftId = shiftResult.isNotEmpty
-            ? shiftResult.first['id'] as int
-            : 0;
+
+        if (shiftResult.isEmpty) {
+          throw Exception('Нет открытой смены! Сначала откройте смену в меню.');
+        }
+        int currentShiftId = shiftResult.first['id'] as int;
+
         for (var item in widget.items) {
           int productId = item['product_id'];
           double retQty = _returnQuantities[productId] ?? 0;
+
           if (retQty > 0) {
-            await txn.rawUpdate(
-              'UPDATE sale_items SET returned_quantity = returned_quantity + ? WHERE sale_id = ? AND product_id = ?',
-              [retQty, widget.saleId, productId],
+            // БЕЗОПАСНОСТЬ: SQL-защита от возврата большего количества, чем было куплено
+            // Условие (quantity - returned_quantity) >= ? блокирует махинации
+            int updatedRows = await txn.rawUpdate(
+              'UPDATE sale_items SET returned_quantity = returned_quantity + ? WHERE sale_id = ? AND product_id = ? AND (quantity - returned_quantity) >= ?',
+              [retQty, widget.saleId, productId, retQty],
             );
+
+            if (updatedRows == 0) {
+              throw Exception(
+                'Попытка вернуть больше товара, чем доступно в чеке!',
+              );
+            }
+
+            // Возвращаем товар на склад
             await txn.rawUpdate(
               'UPDATE products SET stock = stock + ? WHERE id = ?',
               [retQty, productId],
             );
           }
         }
+
+        // Фиксируем операцию в кассе
         await txn.insert('cash_operations', {
           'shift_id': currentShiftId,
           'type': 'Возврат:${widget.saleId}',
@@ -581,6 +599,7 @@ class _PartialReturnScreenState extends State<PartialReturnScreen> {
           'created_at': DateTime.now().toIso8601String(),
         });
       });
+
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(

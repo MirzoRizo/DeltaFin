@@ -412,15 +412,19 @@ class _CashierTerminalScreenState extends State<CashierTerminalScreen> {
       final double change = paymentData['change'] ?? 0.0;
 
       await db.transaction((txn) async {
+        // БЕЗОПАСНОСТЬ: Ищем открытую смену прямо внутри транзакции
         final shiftResult = await txn.query(
           'shifts',
           where: 'is_open = ?',
           whereArgs: [1],
           limit: 1,
         );
-        int currentShiftId = shiftResult.isNotEmpty
-            ? shiftResult.first['id'] as int
-            : 0;
+
+        // Запрещаем пробивать чеки "в пустоту" (shift_id = 0)
+        if (shiftResult.isEmpty) {
+          throw Exception('Смена закрыта. Пожалуйста, откройте смену в меню.');
+        }
+        int currentShiftId = shiftResult.first['id'] as int;
 
         newSaleId = await txn.insert('sales', {
           'shift_id': currentShiftId,

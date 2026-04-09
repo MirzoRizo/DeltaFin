@@ -3,6 +3,7 @@ import 'package:shop_core/shop_core.dart';
 import 'dart:io';
 import 'package:path/path.dart' as p;
 import 'package:intl/intl.dart';
+import 'package:path_provider/path_provider.dart';
 
 class ShiftScreen extends StatefulWidget {
   const ShiftScreen({Key? key}) : super(key: key);
@@ -121,6 +122,7 @@ class _ShiftScreenState extends State<ShiftScreen> {
   }
 
   // === АВТО-БЭКАП ПРИ ЗАКРЫТИИ СМЕНЫ ===
+  // === БЕЗОПАСНЫЙ АВТО-БЭКАП ПРИ ЗАКРЫТИИ СМЕНЫ ===
   Future<void> _closeShift() async {
     if (_activeShift == null) return;
     try {
@@ -132,15 +134,21 @@ class _ShiftScreenState extends State<ShiftScreen> {
         whereArgs: [_activeShift!['id']],
       );
 
-      // КОПИРУЕМ БАЗУ ДАННЫХ
+      // КОПИРУЕМ БАЗУ ДАННЫХ (Кроссплатформенно, без хардкода диска C:)
       try {
         final String dbPath = db.path;
+
+        final Directory appDocDir = await getApplicationSupportDirectory();
         final String backupDirPath = p.join(
-          'C:\\ProgramData\\ShopSystem',
+          appDocDir.path,
+          'ShopSystem',
           'Backups',
         );
+
         final backupDir = Directory(backupDirPath);
-        if (!await backupDir.exists()) await backupDir.create(recursive: true);
+        if (!await backupDir.exists()) {
+          await backupDir.create(recursive: true);
+        }
 
         final String dateStr = DateFormat(
           'yyyy-MM-dd_HH-mm',
@@ -151,22 +159,29 @@ class _ShiftScreenState extends State<ShiftScreen> {
         );
 
         await File(dbPath).copy(backupFilePath);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Смена закрыта. Копия базы сохранена (бэкап)!'),
-            backgroundColor: _premiumGreen,
-            duration: const Duration(seconds: 4),
-          ),
-        );
-      } catch (backupError) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              'Смена закрыта, но создать бэкап не удалось: $backupError',
+
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: const Text(
+                'Смена закрыта. Копия базы сохранена (бэкап)!',
+              ),
+              backgroundColor: _premiumGreen, // Или Colors.green
+              duration: const Duration(seconds: 4),
             ),
-            backgroundColor: Colors.orange,
-          ),
-        );
+          );
+        }
+      } catch (backupError) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                'Смена закрыта, но создать бэкап не удалось: $backupError',
+              ),
+              backgroundColor: Colors.orange,
+            ),
+          );
+        }
       }
 
       _loadShiftData();

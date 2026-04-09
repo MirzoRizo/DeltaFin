@@ -85,19 +85,28 @@ class _AddProductScreenState extends State<AddProductScreen> {
 
     setState(() => _isLoading = true);
 
+    // Вспомогательная функция для безопасного парсинга
+    double safeParse(String input) {
+      final sanitized = input.replaceAll(',', '.').trim();
+      final value = double.tryParse(sanitized);
+      if (value == null) {
+        throw Exception('Неверный формат числа: "$input"');
+      }
+      return value;
+    }
+
     try {
       String finalBarcode = _barcodeController.text.trim();
       bool isWeight = false;
 
-      // Логика генерации перед сохранением
       if (_isWeightMode) {
         finalBarcode = await _inventoryManager.generateSmartPLU(
           _selectedCategory!.prefix,
         );
-        isWeight = true; // Вылезет кнопкой на кассе
+        isWeight = true;
       } else if (_isNoBarcodeMode) {
         finalBarcode = await _inventoryManager.generateInternalEan13();
-        isWeight = false; // Будем клеить этикетку
+        isWeight = false;
       }
 
       final product = Product(
@@ -105,9 +114,9 @@ class _AddProductScreenState extends State<AddProductScreen> {
         unit: 'шт',
         barcode: finalBarcode,
         name: _nameController.text.trim(),
-        costPrice: double.parse(_costPriceController.text.trim()),
-        price: double.parse(_priceController.text.trim()),
-        stock: double.parse(_stockController.text.trim()),
+        costPrice: safeParse(_costPriceController.text),
+        price: safeParse(_priceController.text),
+        stock: safeParse(_stockController.text),
         categoryId: _selectedCategory!.id,
         isWeight: isWeight,
       );
